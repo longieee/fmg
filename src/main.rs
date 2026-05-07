@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use fmg::config::Config;
 use fmg::graph::VaultGraph;
+use petgraph::graph::NodeIndex;
 use fmg::output::{self, Format};
 use fmg::query::{self, TraversalDirection};
 use fmg::vault;
@@ -115,6 +116,24 @@ impl From<DirectionArg> for TraversalDirection {
     }
 }
 
+/// Resolve a node title with fuzzy matching, or exit with helpful error.
+fn resolve_node(vg: &VaultGraph, input: &str) -> NodeIndex {
+    match vg.fuzzy_find_node(input) {
+        Ok(idx) => idx,
+        Err(candidates) if candidates.is_empty() => {
+            eprintln!("Error: node '{}' not found in vault", input);
+            process::exit(1);
+        }
+        Err(candidates) => {
+            eprintln!("Error: '{}' is ambiguous. Did you mean one of:", input);
+            for c in &candidates {
+                eprintln!("  - {}", c);
+            }
+            process::exit(1);
+        }
+    }
+}
+
 fn main() {
     let cli = Cli::parse();
     let format: Format = cli.format.into();
@@ -147,13 +166,7 @@ fn main() {
         } => {
             let depth = depth.unwrap_or(config.display.default_depth)
                 .min(config.display.max_depth);
-            let center = match vg.find_node(&node) {
-                Some(idx) => idx,
-                None => {
-                    eprintln!("Error: node '{}' not found in vault", node);
-                    process::exit(1);
-                }
-            };
+            let center = resolve_node(&vg, &node);
             let dir: TraversalDirection = direction.into();
             let result = query::query(
                 &vg,
@@ -176,20 +189,8 @@ fn main() {
         }
 
         Commands::Bridge { a, b } => {
-            let from = match vg.find_node(&a) {
-                Some(idx) => idx,
-                None => {
-                    eprintln!("Error: node '{}' not found in vault", a);
-                    process::exit(1);
-                }
-            };
-            let to = match vg.find_node(&b) {
-                Some(idx) => idx,
-                None => {
-                    eprintln!("Error: node '{}' not found in vault", b);
-                    process::exit(1);
-                }
-            };
+            let from = resolve_node(&vg, &a);
+            let to = resolve_node(&vg, &b);
             match query::bridge(&vg, from, to) {
                 Some(path) => {
                     print!("{}", output::format_bridge(&vg, from, to, &path, format));
@@ -208,13 +209,7 @@ fn main() {
 
         Commands::Subgraph { node, depth } => {
             let depth = depth.min(config.display.max_depth);
-            let center = match vg.find_node(&node) {
-                Some(idx) => idx,
-                None => {
-                    eprintln!("Error: node '{}' not found in vault", node);
-                    process::exit(1);
-                }
-            };
+            let center = resolve_node(&vg, &node);
             let result = query::query(&vg, center, depth, TraversalDirection::Both, None);
             print!("{}", output::format_query(&vg, &result, format));
         }

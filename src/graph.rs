@@ -157,6 +157,41 @@ impl VaultGraph {
         self.title_index.get(&title.to_lowercase()).copied()
     }
 
+    /// Look up a node by title with fuzzy/substring matching.
+    /// Returns Ok(idx) for exact or unique substring match.
+    /// Returns Err with candidates list for ambiguous matches, or empty vec for no match.
+    pub fn fuzzy_find_node(&self, query: &str) -> Result<NodeIndex, Vec<String>> {
+        // 1. Exact match first (case-insensitive)
+        if let Some(idx) = self.find_node(query) {
+            return Ok(idx);
+        }
+
+        // 2. Substring match on all indexed titles
+        let lower = query.to_lowercase();
+        let mut seen = std::collections::HashSet::new();
+        let mut candidates: Vec<(NodeIndex, String)> = Vec::new();
+
+        for (key, &idx) in &self.title_index {
+            if key.contains(&lower) && seen.insert(idx) {
+                candidates.push((idx, self.graph[idx].title.clone()));
+            }
+        }
+
+        match candidates.len() {
+            0 => Err(vec![]),
+            1 => {
+                let (idx, title) = &candidates[0];
+                eprintln!("(matched '{}' \u{2192} \"{}\")", query, title);
+                Ok(*idx)
+            }
+            _ => {
+                candidates.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+                let titles: Vec<String> = candidates.into_iter().map(|(_, t)| t).collect();
+                Err(titles)
+            }
+        }
+    }
+
     /// Get node data by index.
     pub fn node(&self, idx: NodeIndex) -> &VaultNode {
         &self.graph[idx]
