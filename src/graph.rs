@@ -94,11 +94,10 @@ impl VaultGraph {
 
             for (field, links) in &wikilink_fields {
                 // Check if this field is allowed by config
-                if let Some(ref allowed) = config.fields.edges {
-                    if !allowed.contains(field) {
+                if let Some(ref allowed) = config.fields.edges
+                    && !allowed.contains(field) {
                         continue;
                     }
-                }
 
                 fields.insert(field.clone());
 
@@ -185,7 +184,7 @@ impl VaultGraph {
                 Ok(*idx)
             }
             _ => {
-                candidates.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+                candidates.sort_by_key(|a| a.1.to_lowercase());
                 let titles: Vec<String> = candidates.into_iter().map(|(_, t)| t).collect();
                 Err(titles)
             }

@@ -102,7 +102,7 @@ pub fn scan_vault(vault_root: &Path) -> Vec<Page> {
         if rel.components().any(|c| {
             c.as_os_str()
                 .to_str()
-                .map_or(false, |s| s.starts_with('.'))
+                .is_some_and(|s| s.starts_with('.'))
         }) {
             continue;
         }
@@ -144,10 +144,7 @@ fn parse_frontmatter(content: &str) -> HashMap<String, Value> {
     if let Some(end) = after_open.find("\n---") {
         let yaml_str = &after_open[..end];
         // Deserialize as a mapping
-        match serde_yaml::from_str::<HashMap<String, Value>>(yaml_str) {
-            Ok(map) => map,
-            Err(_) => HashMap::new(),
-        }
+        serde_yaml::from_str::<HashMap<String, Value>>(yaml_str).unwrap_or_default()
     } else {
         HashMap::new()
     }

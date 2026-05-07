@@ -227,13 +227,13 @@ fn format_query_mermaid(vg: &VaultGraph, result: &QueryResult) -> String {
     // Collect all unique nodes from edges
     for edge in &result.edges {
         for idx in [edge.from, edge.to] {
-            if !node_ids.contains_key(&idx) {
+            if let std::collections::hash_map::Entry::Vacant(e) = node_ids.entry(idx) {
                 let id = if next_id < 26 {
                     ((b'A' + next_id as u8) as char).to_string()
                 } else {
                     format!("N{next_id}")
                 };
-                node_ids.insert(idx, id);
+                e.insert(id);
                 next_id += 1;
             }
         }

@@ -70,11 +70,10 @@ pub fn query(
                 let edge_data = edge.weight();
 
                 // Filter by fields if specified
-                if let Some(allowed) = fields {
-                    if !allowed.contains(&edge_data.field) {
+                if let Some(allowed) = fields
+                    && !allowed.contains(&edge_data.field) {
                         continue;
                     }
-                }
 
                 let neighbor = if dir == PetDirection::Outgoing {
                     edge.target()
@@ -96,8 +95,8 @@ pub fn query(
                     hop: next_hop,
                 });
 
-                if !visited.contains_key(&neighbor) {
-                    visited.insert(neighbor, next_hop);
+                if let std::collections::hash_map::Entry::Vacant(e) = visited.entry(neighbor) {
+                    e.insert(next_hop);
                     queue.push_back((neighbor, next_hop));
                 }
             }
