@@ -95,6 +95,7 @@ mod tests {
             rel_path: PathBuf::from(format!("{stem}.md")),
             stem: stem.to_string(),
             frontmatter: fm,
+            body: String::new(),
         }
     }
 

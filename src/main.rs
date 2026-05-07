@@ -21,6 +21,10 @@ struct Cli {
     #[arg(short, long, default_value = "text", global = true)]
     format: FormatArg,
 
+    /// Also parse [[WikiLinks]] from markdown body text
+    #[arg(long, global = true)]
+    include_body: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -151,7 +155,7 @@ fn main() {
         process::exit(1);
     }
 
-    let vg = VaultGraph::build(&pages, &config);
+    let vg = VaultGraph::build(&pages, &config, cli.include_body);
 
     match cli.command {
         Commands::Describe => {

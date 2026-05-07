@@ -12,6 +12,8 @@ pub struct Page {
     pub stem: String,
     /// Raw frontmatter key-value pairs.
     pub frontmatter: HashMap<String, Value>,
+    /// Markdown body text (after frontmatter). Only populated when needed.
+    pub body: String,
 }
 
 impl Page {
@@ -35,6 +37,11 @@ impl Page {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Extract all `[[WikiLink]]` targets from the body text.
+    pub fn body_wikilinks(&self) -> Vec<String> {
+        extract_wikilinks_from_str(&self.body)
     }
 
     /// Extract all frontmatter fields that contain arrays of `[[WikiLink]]` values.
@@ -124,30 +131,42 @@ fn parse_page(vault_root: &Path, path: &Path) -> Option<Page> {
         .unwrap_or("")
         .to_string();
 
-    let frontmatter = parse_frontmatter(&content);
+    let (frontmatter, body) = parse_frontmatter_and_body(&content);
 
     Some(Page {
         rel_path,
         stem,
         frontmatter,
+        body,
     })
+}
+
+/// Extract YAML frontmatter and body from markdown content.
+fn parse_frontmatter_and_body(content: &str) -> (HashMap<String, Value>, String) {
+    let trimmed = content.trim_start();
+    if !trimmed.starts_with("---") {
+        return (HashMap::new(), content.to_string());
+    }
+    let after_open = &trimmed[3..];
+    if let Some(end) = after_open.find("\n---") {
+        let yaml_str = &after_open[..end];
+        let fm = serde_yaml::from_str::<HashMap<String, Value>>(yaml_str).unwrap_or_default();
+        let body_start = end + 4; // skip "\n---"
+        let body = if body_start < after_open.len() {
+            after_open[body_start..].to_string()
+        } else {
+            String::new()
+        };
+        (fm, body)
+    } else {
+        (HashMap::new(), content.to_string())
+    }
 }
 
 /// Extract YAML frontmatter from markdown content.
 /// Frontmatter is delimited by `---` at the start of the file.
 fn parse_frontmatter(content: &str) -> HashMap<String, Value> {
-    let trimmed = content.trim_start();
-    if !trimmed.starts_with("---") {
-        return HashMap::new();
-    }
-    let after_open = &trimmed[3..];
-    if let Some(end) = after_open.find("\n---") {
-        let yaml_str = &after_open[..end];
-        // Deserialize as a mapping
-        serde_yaml::from_str::<HashMap<String, Value>>(yaml_str).unwrap_or_default()
-    } else {
-        HashMap::new()
-    }
+    parse_frontmatter_and_body(content).0
 }
 
 #[cfg(test)]

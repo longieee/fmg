@@ -44,7 +44,7 @@ pub struct VaultGraph {
 
 impl VaultGraph {
     /// Build the graph from parsed pages and config.
-    pub fn build(pages: &[Page], config: &Config) -> Self {
+    pub fn build(pages: &[Page], config: &Config, include_body: bool) -> Self {
         let resolver = Resolver::new(
             pages,
             &config.resolve.title_field,
@@ -140,6 +140,43 @@ impl VaultGraph {
                     }
                 }
             }
+        }
+
+        // Third pass: create edges from body [[WikiLinks]] (if enabled).
+        if include_body {
+            for (page_idx, page) in pages.iter().enumerate() {
+                let body_links = page.body_wikilinks();
+                let from_node = page_nodes[page_idx];
+
+                for link in &body_links {
+                    let to_node = if let Some(resolved_idx) = resolver.resolve(link) {
+                        page_nodes[resolved_idx]
+                    } else {
+                        let lower = link.to_lowercase();
+                        *title_index.entry(lower).or_insert_with(|| {
+                            graph.add_node(VaultNode {
+                                title: link.clone(),
+                                path: None,
+                                external: true,
+                                node_type: None,
+                            })
+                        })
+                    };
+
+                    // Don't add duplicate edge if frontmatter already created one
+                    let already_linked = graph.edges_connecting(from_node, to_node).next().is_some();
+                    if !already_linked {
+                        graph.add_edge(
+                            from_node,
+                            to_node,
+                            VaultEdge {
+                                field: "link".to_string(),
+                            },
+                        );
+                    }
+                }
+            }
+            fields.insert("link".to_string());
         }
 
         Self {
