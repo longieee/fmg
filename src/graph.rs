@@ -1,0 +1,164 @@
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+
+use petgraph::graph::{DiGraph, NodeIndex};
+use serde::Serialize;
+
+use crate::config::Config;
+use crate::resolve::Resolver;
+use crate::vault::Page;
+
+/// A node in the vault graph.
+#[derive(Debug, Clone, Serialize)]
+pub struct VaultNode {
+    /// Display title.
+    pub title: String,
+    /// Relative path from vault root (None for external/unresolved nodes).
+    pub path: Option<PathBuf>,
+    /// Whether this node has a backing file in the vault.
+    pub external: bool,
+    /// The `type` frontmatter field, if present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_type: Option<String>,
+}
+
+/// An edge in the vault graph.
+#[derive(Debug, Clone, Serialize)]
+pub struct VaultEdge {
+    /// The frontmatter field that created this edge (e.g., "depends_on").
+    pub field: String,
+}
+
+/// The complete vault graph.
+pub struct VaultGraph {
+    pub graph: DiGraph<VaultNode, VaultEdge>,
+    /// Map from title (lowercase) → NodeIndex for quick lookup.
+    pub title_index: HashMap<String, NodeIndex>,
+    /// All relationship field names discovered.
+    pub fields: HashSet<String>,
+    /// Total pages scanned (including those without frontmatter links).
+    pub total_pages: usize,
+    /// Pages with at least one frontmatter field.
+    pub pages_with_frontmatter: usize,
+}
+
+impl VaultGraph {
+    /// Build the graph from parsed pages and config.
+    pub fn build(pages: &[Page], config: &Config) -> Self {
+        let resolver = Resolver::new(
+            pages,
+            &config.resolve.title_field,
+            &config.resolve.alias_field,
+        );
+
+        let mut graph = DiGraph::new();
+        let mut title_index: HashMap<String, NodeIndex> = HashMap::new();
+        let mut fields: HashSet<String> = HashSet::new();
+        let mut pages_with_frontmatter = 0;
+
+        // First pass: create a node for each page.
+        let mut page_nodes: Vec<NodeIndex> = Vec::with_capacity(pages.len());
+        for page in pages {
+            let title = page.title(&config.resolve.title_field);
+            let node_type = page
+                .frontmatter
+                .get("type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
+            if !page.frontmatter.is_empty() {
+                pages_with_frontmatter += 1;
+            }
+
+            let node = VaultNode {
+                title: title.clone(),
+                path: Some(page.rel_path.clone()),
+                external: false,
+                node_type,
+            };
+            let idx = graph.add_node(node);
+            title_index.insert(title.to_lowercase(), idx);
+
+            // Also index by aliases and stem for CLI lookup
+            for alias in page.aliases(&config.resolve.alias_field) {
+                title_index.entry(alias.to_lowercase()).or_insert(idx);
+            }
+            title_index.entry(page.stem.to_lowercase()).or_insert(idx);
+            page_nodes.push(idx);
+        }
+
+        // Second pass: create edges from wikilink fields.
+        for (page_idx, page) in pages.iter().enumerate() {
+            let wikilink_fields = page.wikilink_fields();
+            let from_node = page_nodes[page_idx];
+
+            for (field, links) in &wikilink_fields {
+                // Check if this field is allowed by config
+                if let Some(ref allowed) = config.fields.edges {
+                    if !allowed.contains(field) {
+                        continue;
+                    }
+                }
+
+                fields.insert(field.clone());
+
+                for link in links {
+                    let to_node = if let Some(resolved_idx) = resolver.resolve(link) {
+                        page_nodes[resolved_idx]
+                    } else {
+                        // External/unresolved node
+                        let lower = link.to_lowercase();
+                        *title_index.entry(lower).or_insert_with(|| {
+                            graph.add_node(VaultNode {
+                                title: link.clone(),
+                                path: None,
+                                external: true,
+                                node_type: None,
+                            })
+                        })
+                    };
+
+                    // Add forward edge
+                    graph.add_edge(
+                        from_node,
+                        to_node,
+                        VaultEdge {
+                            field: field.clone(),
+                        },
+                    );
+
+                    // Add reverse edge for bidirectional fields
+                    if config.direction_for(field)
+                        == crate::config::Direction::Bidirectional
+                    {
+                        graph.add_edge(
+                            to_node,
+                            from_node,
+                            VaultEdge {
+                                field: field.clone(),
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
+        Self {
+            graph,
+            title_index,
+            fields,
+            total_pages: pages.len(),
+            pages_with_frontmatter,
+        }
+    }
+
+    /// Look up a node by title (case-insensitive).
+    pub fn find_node(&self, title: &str) -> Option<NodeIndex> {
+        self.title_index.get(&title.to_lowercase()).copied()
+    }
+
+    /// Get node data by index.
+    pub fn node(&self, idx: NodeIndex) -> &VaultNode {
+        &self.graph[idx]
+    }
+}
