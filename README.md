@@ -3,10 +3,10 @@
 A fast, Obsidian-native CLI for traversing `[[WikiLink]]` relationships in frontmatter markdown vaults. Single binary, zero config, zero runtime dependencies.
 
 ```
-fmg query "LibreChat" --depth 2 --format json
-fmg bridge "LibreChat" "TensorZero"
+fmg query "My Concept" --depth 2 --format json
+fmg bridge "Concept A" "Concept B"
 fmg centrality --limit 10
-fmg subgraph "MongoDB" --depth 2 --format mermaid
+fmg subgraph "My Concept" --depth 2 --format mermaid
 ```
 
 ## Problem
@@ -78,29 +78,29 @@ fmg [-w PATH] [-f FORMAT] <COMMAND>
 fmg describe
 fmg -f json describe
 
-# What does LibreChat depend on, 2 hops deep?
-fmg query "LibreChat" --depth 2 --direction up
+# What does a concept depend on, 2 hops deep?
+fmg query "My Concept" --depth 2 --direction up
 
-# What depends on MongoDB? (blast radius)
-fmg query "MongoDB" --direction down --depth 3
+# What depends on a concept? (blast radius)
+fmg query "Core Concept" --direction down --depth 3
 
 # Only traverse specific relationship fields
-fmg query "LibreChat" --depth 3 --fields depends_on,part_of
+fmg query "My Concept" --depth 3 --fields depends_on,part_of
 
 # Shortest path between two nodes
-fmg bridge "LibreChat" "TensorZero"
+fmg bridge "Concept A" "Concept B"
 
 # Find hub concepts
 fmg centrality --limit 10
 
 # Machine-readable output for agents
-fmg -f json query "Topology" --depth 2
+fmg -f json query "My Topic" --depth 2
 
 # Generate Mermaid diagram
-fmg -f mermaid subgraph "LibreChat" --depth 2
+fmg -f mermaid subgraph "My Concept" --depth 2
 
 # File paths only (for xargs, etc.)
-fmg -f paths query "LibreChat" --depth 1
+fmg -f paths query "My Concept" --depth 1
 
 # Find quality issues
 fmg orphans
@@ -115,31 +115,31 @@ Human-readable, paste-into-agent-context-ready:
 
 ```
 ═══════════════════════════════════════
-  LibreChat (HelperAI)
+  Concept A
   depth=2  direction=both  nodes=5
 ═══════════════════════════════════════
 
 ── Hop 1 ─────────────────────────────
-  LibreChat (HelperAI) ──[depends_on]──▶ LibreChat MongoDB
-  LibreChat (HelperAI) ──[depends_on]──▶ LiteLLM Proxy  ⚠ external
-  LibreChat (HelperAI) ──[related_to]──▶ TensorZero
+  Concept A ──[depends_on]──▶ Concept B
+  Concept A ──[depends_on]──▶ External Tool  ⚠ external
+  Concept A ──[related_to]──▶ Concept C
 
 ── Hop 2 ─────────────────────────────
-  TensorZero ──[depends_on]──▶ ClickHouse  ⚠ external
+  Concept C ──[depends_on]──▶ Concept D  ⚠ external
 ```
 
 ### `json`
 
 ```json
 {
-  "center": "LibreChat (HelperAI)",
+  "center": "Concept A",
   "depth": 2,
   "nodes": [
-    {"title": "LibreChat (HelperAI)", "hop": 0, "type": "service", "path": "services/librechat.md"},
-    {"title": "LibreChat MongoDB",    "hop": 1, "type": "data-store", "path": "data-stores/librechat-mongodb.md"}
+    {"title": "Concept A", "hop": 0, "type": "topic", "path": "topics/concept-a.md"},
+    {"title": "Concept B", "hop": 1, "type": "topic", "path": "topics/concept-b.md"}
   ],
   "edges": [
-    {"from": "LibreChat (HelperAI)", "to": "LibreChat MongoDB", "field": "depends_on", "hop": 1}
+    {"from": "Concept A", "to": "Concept B", "field": "depends_on", "hop": 1}
   ]
 }
 ```
@@ -148,22 +148,22 @@ Human-readable, paste-into-agent-context-ready:
 
 ```
 graph LR
-  A["LibreChat (HelperAI)"] -->|depends_on| B["LibreChat MongoDB"]
-  A["LibreChat (HelperAI)"] -->|depends_on| C["LiteLLM Proxy"]
+  A["Concept A"] -->|depends_on| B["Concept B"]
+  A["Concept A"] -->|related_to| C["Concept C"]
 ```
 
 ### `paths`
 
 ```
-services/librechat.md
-data-stores/librechat-mongodb.md
+topics/concept-a.md
+topics/concept-b.md
 ```
 
-Useful with `xargs`: `fmg -f paths query "LibreChat" | xargs grep "TODO"`.
+Useful with `xargs`: `fmg -f paths query "My Concept" | xargs grep "TODO"`.
 
 ## WikiLink Resolution
 
-Frontmatter values like `depends_on: ["[[LibreChat MongoDB]]", "[[LiteLLM Proxy]]"]` are resolved by matching against each page in priority order:
+Frontmatter values like `depends_on: ["[[Concept B]]", "[[Concept C]]"]` are resolved by matching against each page in priority order:
 
 1. `title` frontmatter field (exact, case-insensitive)
 2. `aliases` frontmatter array
