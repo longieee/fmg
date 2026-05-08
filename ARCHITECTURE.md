@@ -163,13 +163,19 @@ Standard BFS from `center`. The `direction` parameter controls which edge direct
 
 Optional `fields` filter restricts traversal to specific edge types. Deduplicates result edges by `(from, to, field)`.
 
+**Time complexity:** O(V_d + E_d) where V_d and E_d are the nodes and edges reachable within `depth` hops. Much less than the full graph for small depths. Worst case O(V + E) when depth is unbounded.
+
 **`bridge(vg, from, to) → Option<Vec<(NodeIndex, NodeIndex, String)>>`**
 
 Undirected BFS (follows both `Outgoing` and `Incoming`) from `from`, tracking a parent map. Reconstructs path on reaching `to`.
 
+**Time complexity:** O(V + E) in the worst case (no path found — full graph explored).
+
 **`centrality(vg, limit) → Vec<(NodeIndex, usize)>`**
 
 Computes total degree (in + out) for every node, sorts descending, truncates to `limit`.
+
+**Time complexity:** O(V + E) for degree counting + O(V log V) for the sort.
 
 **`orphans(vg) → Vec<NodeIndex>`**
 

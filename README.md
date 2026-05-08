@@ -217,3 +217,15 @@ Performance targets:
 - 500 files → < 50 ms
 - 5,000 files → < 200 ms
 - 50,000 files → < 2 s
+
+### Query complexity
+
+| Command | Time complexity |
+|---------|----------------|
+| `query` | O(V_d + E_d) — linear in the reachable subgraph within `--depth` hops |
+| `bridge` | O(V + E) — BFS over the full graph in the worst case |
+| `centrality` | O(V + E) for degree counting, O(V log V) for sorting |
+| `orphans` | O(V + E) |
+| `broken` | O(V + E) |
+
+Node lookup by name (title/alias/stem) is O(1) average via the `title_index` HashMap.
