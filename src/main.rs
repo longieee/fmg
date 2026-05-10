@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use fmg::config::Config;
 use fmg::graph::VaultGraph;
+use fmg::mcp;
 use petgraph::graph::NodeIndex;
 use fmg::output::{self, Format};
 use fmg::query::{self, TraversalDirection};
@@ -101,6 +102,9 @@ enum Commands {
         #[arg(short, long, default_value = "2")]
         depth: u32,
     },
+
+    /// Start an MCP server over stdio (for Claude Desktop / agent pipelines)
+    Serve,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -146,6 +150,13 @@ fn main() {
         eprintln!("Error: cannot access workspace '{}': {e}", cli.workspace.display());
         process::exit(1);
     });
+
+    // MCP server mode: hand off to mcp::run before building the vault graph
+    // (the mcp module handles its own vault scan).
+    if matches!(cli.command, Commands::Serve) {
+        mcp::run(vault_root);
+        return;
+    }
 
     let config = Config::load(&vault_root);
     let pages = vault::scan_vault(&vault_root);
@@ -217,5 +228,7 @@ fn main() {
             let result = query::query(&vg, center, depth, TraversalDirection::Both, None);
             print!("{}", output::format_query(&vg, &result, format));
         }
+
+        Commands::Serve => unreachable!("handled before vault build"),
     }
 }
