@@ -43,13 +43,19 @@ fmg [-w PATH] [-f FORMAT] <COMMAND>
 | `bridge <A> <B>` | Shortest path between two nodes |
 | `centrality` | Most-connected nodes (hub discovery) |
 | `subgraph <NODE>` | Exportable neighborhood graph |
+| `xedges` | List typed cross-service (runtime) edges with attributes |
+| `serve` | Start an MCP server over stdio (agent/Claude Desktop integration) |
 
 ### Global flags
+
+Global flags are accepted **before or after** the subcommand
+(`fmg -w vault query X` and `fmg query X -w vault` are equivalent).
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-w, --workspace PATH` | `.` (current dir) | Vault root directory |
 | `-f, --format FORMAT` | `text` | Output format: `text`, `json`, `mermaid`, `paths` |
+| `--include-body` | off | Also parse `[[WikiLinks]]` from markdown body text |
 
 ### `query` flags
 
@@ -186,6 +192,59 @@ Nodes can be looked up by any of the above (title, alias, or stem) when specifie
 | `related_to`, `seeAlso` | bidirectional (A ↔ B) |
 | everything else | forward (A → B) |
 
+## Cross-service (runtime) edges
+
+Structural `[[WikiLink]]` edges name a relationship but carry no other data. Some edges need
+**per-edge attributes** a wikilink array can't hold — e.g. a cross-service call with a type, an
+endpoint, an enabling condition, and a provenance pointer. `fmg` supports these as a **separate
+runtime-edge layer**, declared with a `cross_service:` frontmatter field on the edge's **source**
+page (an array of objects):
+
+```yaml
+---
+title: mcp-user-context-info
+type: service
+depends_on: ["[[Redis]]"]          # structural edge (unchanged)
+cross_service:                      # runtime edges (typed, attributed)
+  - target: "[[LibreChat]]"
+    type: http-call
+    endpoint: /api/agents/chat
+    condition: "use_librechat_api==true"
+    provenance: src/helperai_service.py:411
+---
+```
+
+List them with `xedges`:
+
+```bash
+fmg xedges                    # all runtime edges
+fmg xedges --from LibreChat   # only edges touching a node
+fmg -f json xedges            # machine-readable, with all attributes
+```
+
+Only `target` is required; `type` defaults to `cross_service`; `endpoint`/`condition`/`provenance`
+are optional. Targets resolve like wikilinks (title/alias/stem), falling back to external nodes.
+
+**The runtime layer is namespaced away from the structural graph:** it lives in its own store, so
+`describe`, `query`, `bridge`, and `centrality` behave **identically whether or not** `cross_service`
+edges exist. Runtime edges surface only through `xedges` (and the `cross_service` MCP tool).
+
+## MCP server
+
+`fmg serve` starts a [Model Context Protocol](https://modelcontextprotocol.io) server over stdio
+(JSON-RPC 2.0, newline-delimited), exposing every query as an MCP tool: `describe`, `query`,
+`orphans`, `broken`, `bridge`, `centrality`, `subgraph`, and `cross_service`.
+
+```bash
+fmg -w /path/to/vault serve
+```
+
+Claude Desktop config (`-w` is global, so either arg order works):
+
+```json
+{ "mcpServers": { "fmg": { "command": "fmg", "args": ["-w", "/path/to/vault", "serve"] } } }
+```
+
 ## Configuration (optional)
 
 Place `.fmg.toml` at the vault root. Everything is optional.
@@ -212,6 +271,8 @@ max_depth     = 10
 ## Design
 
 **The vault IS the database.** No indexing, no daemon, no schema. `fmg` parses on every run and exits. Fast enough for tens of thousands of files.
+
+**Deterministic output.** Pages are sorted by path, relationship fields by name, and result nodes/edges by a stable key — so identical input yields byte-identical output across runs (no HashMap-order flake).
 
 Performance targets:
 - 500 files → < 50 ms

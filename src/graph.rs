@@ -114,7 +114,11 @@ impl VaultGraph {
             let wikilink_fields = page.wikilink_fields();
             let from_node = page_nodes[page_idx];
 
-            for (field, links) in &wikilink_fields {
+            // Iterate fields in sorted order so edge insertion — and output — is deterministic
+            // (HashMap iteration order is randomized per process).
+            let mut wl: Vec<(&String, &Vec<String>)> = wikilink_fields.iter().collect();
+            wl.sort_by_key(|(f, _)| *f);
+            for (field, links) in wl {
                 // Check if this field is allowed by config
                 if let Some(ref allowed) = config.fields.edges
                     && !allowed.contains(field) {

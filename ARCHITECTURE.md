@@ -22,11 +22,12 @@ src/
 ├── main.rs      CLI entry point — argument parsing, command dispatch
 ├── lib.rs       Re-exports all public modules
 ├── config.rs    .fmg.toml loading and field-direction semantics
-├── vault.rs     File discovery and YAML frontmatter parsing
+├── vault.rs     File discovery, YAML frontmatter parsing, cross_service parsing
 ├── resolve.rs   WikiLink-to-page resolution index
-├── graph.rs     In-memory petgraph construction
+├── graph.rs     In-memory petgraph construction + parallel runtime-edge layer
 ├── query.rs     BFS traversal, bridge (shortest path), centrality, orphans, broken links
-└── output.rs    Formatters: text, json, mermaid, paths
+├── output.rs    Formatters: text, json, mermaid, paths (+ cross-service edges)
+└── mcp.rs       MCP server over stdio (JSON-RPC 2.0) — one tool per query
 ```
 
 ---
@@ -82,13 +83,23 @@ Loads `.fmg.toml` via `toml::from_str`. All fields are optional with defaults:
 
 ### `vault.rs` — File Discovery + Frontmatter Parsing
 
-**Types:** `Page`
+**Types:** `Page`, `CrossEdge`
 
 **`scan_vault(vault_root) → Vec<Page>`**
 
 Uses `walkdir` to recurse the vault root. Skips:
 - Non-`.md` files
 - Hidden paths (any component starting with `.`, e.g., `.obsidian/`, `.trash/`)
+
+Results are **sorted by relative path** before returning, so node-index assignment (and therefore
+all downstream output ordering) is deterministic regardless of filesystem walk order.
+
+**`Page::cross_service_edges() → Vec<CrossEdge>`**
+
+Parses the `cross_service:` frontmatter field — an array of maps — into typed runtime edges
+(`target` + optional `type`/`endpoint`/`condition`/`provenance`). `target` accepts `[[Bracketed]]`
+or bare text. This field is excluded from `wikilink_fields()` so it never leaks into the structural
+graph.
 
 Each `.md` file is parsed by `parse_frontmatter`, which:
 1. Checks for a `---` fence at the start of the file
@@ -124,9 +135,19 @@ Looks up the link in priority order. Returns `Some(page_index)` on first match, 
 
 ### `graph.rs` — Graph Construction
 
-**Types:** `VaultGraph`, `VaultNode`, `VaultEdge`
+**Types:** `VaultGraph`, `VaultNode`, `VaultEdge`, `RuntimeEdge`
 
-Uses `petgraph::graph::DiGraph<VaultNode, VaultEdge>` (directed, multi-edge).
+Uses `petgraph::graph::DiGraph<VaultNode, VaultEdge>` (directed, multi-edge) for the structural
+`[[WikiLink]]` graph.
+
+**Runtime-edge layer.** `VaultGraph` also holds `runtime_edges: Vec<RuntimeEdge>` — a **parallel
+store, deliberately not in the petgraph**. Each `RuntimeEdge` carries `from`/`to` titles plus
+`type`, `endpoint`, `condition`, `provenance`, and an `external_target` flag. A build pass reads
+each page's `cross_service:` frontmatter (see `vault.rs`), resolves the target like a wikilink, and
+appends a `RuntimeEdge`. Because the structural queries only ever read `self.graph`, they are
+**unaffected by the presence of runtime edges** — the namespacing is structural, not a filter.
+`VaultGraph::runtime_edges_for(title)` returns the edges touching a node (or all). Exposed via the
+`xedges` CLI command and the `cross_service` MCP tool.
 
 **`VaultGraph::build(pages, config) → VaultGraph`**
 
@@ -206,6 +227,17 @@ One public function per command, each dispatching on `Format`:
 
 ---
 
+### `mcp.rs` — MCP Server
+
+**`run(vault_root)`** builds the vault graph once, then serves a Model Context Protocol session over
+stdio: newline-delimited JSON-RPC 2.0. Handles `initialize`, `tools/list`, `tools/call`, `ping`, and
+notifications. Each tool (`describe`, `query`, `orphans`, `broken`, `bridge`, `centrality`,
+`subgraph`, `cross_service`) dispatches to the same `query`/`output` functions the CLI uses, so CLI
+and MCP results are identical. Reached via `fmg serve` (handled in `main.rs` before the normal vault
+build). Synchronous, single-threaded, no async runtime — one request per input line.
+
+---
+
 ## Key Dependencies
 
 | Crate | Version | Purpose |
@@ -238,3 +270,9 @@ Frontmatter schemas are unknown at compile time. Auto-detecting WikiLink fields 
 
 **Why `Option<usize>` page indices in the resolver rather than `NodeIndex`?**  
 The resolver is built before the graph, so `NodeIndex` values don't exist yet. Indices are stable `Vec` positions; `NodeIndex` is assigned in the same order during graph construction.
+
+**Why sort pages, fields, and results?**  
+`HashMap` iteration order is randomized per process, and `walkdir` yields filesystem order. Left unsorted, identical input produced different output orderings run-to-run. Sorting pages (by path), field iteration (by name), and query results (by hop then title) makes output byte-deterministic — important for diffs, tests, and reproducible agent context.
+
+**Why a separate `Vec` for runtime edges instead of tagging them in the petgraph?**  
+Keeping them out of `self.graph` guarantees the structural queries are untouched *by construction* — no per-query "skip the runtime layer" filter to keep correct as commands are added. The trade-off is that a single BFS can't currently mix structural and runtime hops; `xedges` is a dedicated view. Folding the layers into one tagged graph (with a structural-default filter) is a possible future change.

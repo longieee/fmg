@@ -55,6 +55,31 @@ fmg scans all frontmatter and identifies fields whose values are arrays of `[[Wi
 
 Direction can be overridden in `.fmg.toml`.
 
+### Cross-service (runtime) edges
+
+A second, **typed** edge layer for relationships that need per-edge attributes a `[[WikiLink]]`
+array cannot carry (type, endpoint, enabling condition, provenance). Declared with a
+`cross_service:` frontmatter field — an array of objects — on the edge's **source** page:
+
+```yaml
+cross_service:
+  - target: "[[LibreChat]]"        # required; resolves like a wikilink (falls back to external)
+    type: http-call                # optional (default: "cross_service")
+    endpoint: /api/agents/chat     # optional
+    condition: "use_librechat_api==true"   # optional — the enabling config/flag guard
+    provenance: src/helperai_service.py:411  # optional — code/config pointer
+```
+
+These edges live in a **separate store**, parallel to the `[[WikiLink]]` graph, so the structural
+queries (`describe`/`query`/`bridge`/`centrality`) are unaffected by their presence. They surface
+only via `fmg xedges` and the `cross_service` MCP tool.
+
+## MCP server
+
+`fmg serve` runs a Model Context Protocol server over stdio (JSON-RPC 2.0, newline-delimited),
+exposing each query as a tool: `describe`, `query`, `orphans`, `broken`, `bridge`, `centrality`,
+`subgraph`, `cross_service`. See the README for a Claude Desktop config example.
+
 ## CLI
 
 ```
@@ -73,8 +98,11 @@ Commands:
     --limit N                  Number of results (default: 10)
   subgraph <NODE>              Exportable neighborhood graph
     --depth N                  Radius (default: 2)
+  xedges                       List typed cross-service (runtime) edges with attributes
+    --from NODE                Only edges touching this node (default: all)
+  serve                        Start an MCP server over stdio (agent integration)
 
-Global flags:
+Global flags (accepted before OR after the subcommand):
   -w, --workspace PATH         Vault root (default: current directory)
   -f, --format text|json|mermaid|paths   Output format (default: text)
   --include-body               Also parse [[links]] from markdown body (slower)
@@ -234,12 +262,18 @@ cargo build --release
 cp target/release/fmg ~/.local/bin/
 ```
 
-## Future possibilities (not in MVP)
+## Shipped since MVP
 
 - `--include-body`: parse `[[WikiLinks]]` from markdown body text (not just frontmatter)
+- MCP server mode (`fmg serve`): expose graph queries as MCP tools over stdio
+- Typed cross-service (runtime) edge layer (`cross_service:` frontmatter + `fmg xedges` + `cross_service` tool)
+- Deterministic output (sorted pages/fields/results)
+
+## Future possibilities
+
 - Dataview inline field support (`Author:: [[Name]]`)
 - Watch mode: rebuild graph on file changes
-- MCP server mode: expose graph queries as MCP tools
 - QMD integration: semantic search + graph expansion
 - `fmg lint`: validate frontmatter against a schema
 - Tag-based grouping and filtering
+- Unified traversal across structural + runtime layers (currently `xedges` is a dedicated view)

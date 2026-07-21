@@ -168,6 +168,9 @@ pub fn scan_vault(vault_root: &Path) -> Vec<Page> {
             pages.push(page);
         }
     }
+    // Sort by path so node indices — and thus all output ordering — are deterministic,
+    // independent of filesystem walk order.
+    pages.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
     pages
 }
 

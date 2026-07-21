@@ -14,8 +14,8 @@ use fmg::vault;
 #[derive(Parser)]
 #[command(name = "fmg", version, about = "Fast, Obsidian-native CLI for traversing [[WikiLink]] relationships in frontmatter markdown vaults")]
 struct Cli {
-    /// Vault root directory
-    #[arg(short = 'w', long = "workspace", default_value = ".")]
+    /// Vault root directory (accepted before or after the subcommand)
+    #[arg(short = 'w', long = "workspace", default_value = ".", global = true)]
     workspace: PathBuf,
 
     /// Output format

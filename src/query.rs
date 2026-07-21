@@ -103,12 +103,25 @@ pub fn query(
         }
     }
 
+    // Sort nodes by (hop, title) for deterministic output (ties were HashMap-order before).
     let mut nodes: Vec<(NodeIndex, u32)> = visited.into_iter().collect();
-    nodes.sort_by_key(|&(_, hop)| hop);
+    nodes.sort_by(|a, b| {
+        a.1.cmp(&b.1)
+            .then_with(|| vg.node(a.0).title.cmp(&vg.node(b.0).title))
+    });
 
     // Deduplicate edges (same from/to/field)
     let mut seen_edges: HashSet<(NodeIndex, NodeIndex, String)> = HashSet::new();
     edges.retain(|e| seen_edges.insert((e.from, e.to, e.field.clone())));
+
+    // Sort edges by (hop, from-title, to-title, field) for deterministic output.
+    edges.sort_by(|a, b| {
+        a.hop
+            .cmp(&b.hop)
+            .then_with(|| vg.node(a.from).title.cmp(&vg.node(b.from).title))
+            .then_with(|| vg.node(a.to).title.cmp(&vg.node(b.to).title))
+            .then_with(|| a.field.cmp(&b.field))
+    });
 
     QueryResult {
         center,
@@ -192,7 +205,11 @@ pub fn centrality(vg: &VaultGraph, limit: usize) -> Vec<(NodeIndex, usize)> {
         })
         .collect();
 
-    degrees.sort_by(|a, b| b.1.cmp(&a.1));
+    // Sort by degree desc, breaking ties by title for deterministic output.
+    degrees.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| vg.graph[a.0].title.cmp(&vg.graph[b.0].title))
+    });
     degrees.truncate(limit);
     degrees
 }
