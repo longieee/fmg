@@ -103,6 +103,13 @@ enum Commands {
         depth: u32,
     },
 
+    /// List typed cross-service (runtime) edges with type + condition + provenance
+    Xedges {
+        /// Only edges touching this node (as source or target); default: all
+        #[arg(long)]
+        from: Option<String>,
+    },
+
     /// Start an MCP server over stdio (for Claude Desktop / agent pipelines)
     Serve,
 }
@@ -227,6 +234,11 @@ fn main() {
             let center = resolve_node(&vg, &node);
             let result = query::query(&vg, center, depth, TraversalDirection::Both, None);
             print!("{}", output::format_query(&vg, &result, format));
+        }
+
+        Commands::Xedges { from } => {
+            let edges = vg.runtime_edges_for(from.as_deref());
+            print!("{}", output::format_xedges(&edges, format));
         }
 
         Commands::Serve => unreachable!("handled before vault build"),

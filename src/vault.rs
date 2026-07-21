@@ -3,6 +3,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// A typed cross-service (runtime) edge parsed from a `cross_service:` frontmatter field.
+///
+/// Carries per-edge attributes a `[[WikiLink]]` array cannot: type, endpoint, enabling
+/// condition (the §9.2 disabled-path-as-live guard), and code/config provenance.
+#[derive(Debug, Clone)]
+pub struct CrossEdge {
+    pub target: String,
+    pub edge_type: String,
+    pub endpoint: Option<String>,
+    pub condition: Option<String>,
+    pub provenance: Option<String>,
+}
+
 /// A parsed markdown page from the vault.
 #[derive(Debug, Clone)]
 pub struct Page {
@@ -49,12 +62,49 @@ impl Page {
     pub fn wikilink_fields(&self) -> HashMap<String, Vec<String>> {
         let mut result = HashMap::new();
         for (key, value) in &self.frontmatter {
+            // The runtime layer (`cross_service`) is object-valued, not [[WikiLink]] arrays —
+            // exclude it so it never leaks into the structural edge set.
+            if key == "cross_service" {
+                continue;
+            }
             let links = extract_wikilinks_from_value(value);
             if !links.is_empty() {
                 result.insert(key.clone(), links);
             }
         }
         result
+    }
+
+    /// Parse the `cross_service:` frontmatter field: an array of maps, each a typed
+    /// cross-service edge. Returns empty if the field is absent or malformed.
+    pub fn cross_service_edges(&self) -> Vec<CrossEdge> {
+        let Some(Value::Sequence(seq)) = self.frontmatter.get("cross_service") else {
+            return vec![];
+        };
+        let mut out = Vec::new();
+        for item in seq {
+            let Value::Mapping(m) = item else { continue };
+            let get = |k: &str| m.get(k).and_then(|v| v.as_str()).map(|s| s.to_string());
+            let Some(target_raw) = get("target") else { continue };
+            // Accept "[[Target]]" or bare "Target".
+            let target = target_raw
+                .trim()
+                .trim_start_matches("[[")
+                .trim_end_matches("]]")
+                .trim()
+                .to_string();
+            if target.is_empty() {
+                continue;
+            }
+            out.push(CrossEdge {
+                target,
+                edge_type: get("type").unwrap_or_else(|| "cross_service".to_string()),
+                endpoint: get("endpoint"),
+                condition: get("condition"),
+                provenance: get("provenance"),
+            });
+        }
+        out
     }
 }
 

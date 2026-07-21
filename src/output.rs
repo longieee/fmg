@@ -217,6 +217,39 @@ fn format_query_json(vg: &VaultGraph, result: &QueryResult) -> String {
     serde_json::to_string_pretty(&data).unwrap()
 }
 
+// ─── Cross-service (runtime) edges ────────────────────────────────────────────
+
+/// Format the typed runtime-edge layer (type + endpoint + condition + provenance).
+pub fn format_xedges(edges: &[&crate::graph::RuntimeEdge], format: Format) -> String {
+    match format {
+        Format::Json => serde_json::to_string_pretty(&edges).unwrap(),
+        _ => {
+            let mut out = String::new();
+            out.push_str("═══════════════════════════════════════\n");
+            out.push_str(&format!("  Cross-service (runtime) edges: {}\n", edges.len()));
+            out.push_str("═══════════════════════════════════════\n\n");
+            for e in edges {
+                let ext = if e.external_target { "  ⚠ external" } else { "" };
+                out.push_str(&format!(
+                    "  {} ──[{}]──▶ {}{}\n",
+                    e.from, e.edge_type, e.to, ext
+                ));
+                if let Some(ep) = &e.endpoint {
+                    out.push_str(&format!("      endpoint:   {ep}\n"));
+                }
+                out.push_str(&format!(
+                    "      condition:  {}\n",
+                    e.condition.as_deref().unwrap_or("(unconditional)")
+                ));
+                if let Some(p) = &e.provenance {
+                    out.push_str(&format!("      provenance: {p}\n"));
+                }
+            }
+            out
+        }
+    }
+}
+
 fn format_query_mermaid(vg: &VaultGraph, result: &QueryResult) -> String {
     let mut out = String::from("graph LR\n");
     let mut node_ids: HashMap<NodeIndex, String> = HashMap::new();

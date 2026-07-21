@@ -170,6 +170,26 @@ fn tool_list() -> Value {
                 },
                 "required": ["node"]
             }
+        },
+        {
+            "name": "cross_service",
+            "description": "List typed cross-service (runtime) edges with type, endpoint, enabling condition, and code/config provenance. Optionally filter to edges touching a node.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "node": {
+                        "type": "string",
+                        "description": "Only edges touching this node (as source or target); default: all"
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": ["text", "json"],
+                        "description": "Output format (default: json)",
+                        "default": "json"
+                    }
+                },
+                "required": []
+            }
         }
     ])
 }
@@ -284,6 +304,13 @@ fn call_tool(vg: &VaultGraph, config: &Config, name: &str, args: &Value) -> (Str
                     (format!(r#"{{"error": "ambiguous node '{}': {}}}"#, node_title, candidates.join(", ")), true)
                 }
             }
+        }
+
+        "cross_service" => {
+            let from = args["node"].as_str();
+            let fmt = parse_format(args, Format::Json);
+            let edges = vg.runtime_edges_for(from);
+            (output::format_xedges(&edges, fmt), false)
         }
 
         unknown => (format!(r#"{{"error": "unknown tool: {}}}"#, unknown), true),

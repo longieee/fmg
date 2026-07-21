@@ -29,6 +29,26 @@ pub struct VaultEdge {
     pub field: String,
 }
 
+/// A typed cross-service (runtime) edge — a SEPARATE layer from the structural
+/// `[[WikiLink]]` graph. Kept out of the petgraph so every existing structural
+/// query (`query`, `bridge`, `centrality`, `describe`, …) is byte-identical whether
+/// or not runtime edges exist (§7.2 edge-namespacing; §9.3 "coarse queries unaffected").
+#[derive(Debug, Clone, Serialize)]
+pub struct RuntimeEdge {
+    pub from: String,
+    pub to: String,
+    #[serde(rename = "type")]
+    pub edge_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
+    /// True when the target has no backing page (external service/infra node).
+    pub external_target: bool,
+}
+
 /// The complete vault graph.
 pub struct VaultGraph {
     pub graph: DiGraph<VaultNode, VaultEdge>,
@@ -40,6 +60,8 @@ pub struct VaultGraph {
     pub total_pages: usize,
     /// Pages with at least one frontmatter field.
     pub pages_with_frontmatter: usize,
+    /// Typed cross-service edges — the runtime layer, parallel to `graph`.
+    pub runtime_edges: Vec<RuntimeEdge>,
 }
 
 impl VaultGraph {
@@ -179,12 +201,50 @@ impl VaultGraph {
             fields.insert("link".to_string());
         }
 
+        // Runtime layer: parse `cross_service:` typed edges into a SEPARATE store.
+        // Nothing here touches `graph`, so structural queries stay byte-identical.
+        let mut runtime_edges: Vec<RuntimeEdge> = Vec::new();
+        for page in pages {
+            let from_title = page.title(&config.resolve.title_field);
+            for ce in page.cross_service_edges() {
+                let resolved = resolver.resolve(&ce.target);
+                let to_title = match resolved {
+                    Some(i) => pages[i].title(&config.resolve.title_field),
+                    None => ce.target.clone(),
+                };
+                runtime_edges.push(RuntimeEdge {
+                    from: from_title.clone(),
+                    to: to_title,
+                    edge_type: ce.edge_type,
+                    endpoint: ce.endpoint,
+                    condition: ce.condition,
+                    provenance: ce.provenance,
+                    external_target: resolved.is_none(),
+                });
+            }
+        }
+
         Self {
             graph,
             title_index,
             fields,
             total_pages: pages.len(),
             pages_with_frontmatter,
+            runtime_edges,
+        }
+    }
+
+    /// Runtime-layer edges touching `title` (as source or target), or ALL if `None`.
+    pub fn runtime_edges_for(&self, title: Option<&str>) -> Vec<&RuntimeEdge> {
+        match title {
+            None => self.runtime_edges.iter().collect(),
+            Some(t) => {
+                let lower = t.to_lowercase();
+                self.runtime_edges
+                    .iter()
+                    .filter(|e| e.from.to_lowercase() == lower || e.to.to_lowercase() == lower)
+                    .collect()
+            }
         }
     }
 
